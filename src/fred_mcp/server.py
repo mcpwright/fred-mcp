@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -598,6 +599,19 @@ async def get_vintage_dates(series_id: str, ctx: Context) -> VintageDatesResult:
     )
 
 
+def _quiet_http_logging() -> None:
+    """Keep httpx/httpcore request logs out of client-visible output.
+
+    httpx logs every request URL at INFO — and FRED's URL carries the user's
+    api_key as a query param. Capping these loggers at WARNING means the key
+    cannot reach a host that captures the server's stderr, regardless of the
+    ambient logging configuration.
+    """
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def main() -> None:
     """Run the MCP server on stdio."""
+    _quiet_http_logging()
     mcp.run()
