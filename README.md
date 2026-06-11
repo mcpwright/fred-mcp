@@ -48,6 +48,47 @@ first-class question.
 
 All tools are read-only and annotated as such.
 
+## What can you ask?
+
+Every question below was run live against the real FRED API through these
+tools (answers as of June 2026 — ask again and they'll be current).
+
+**Everyday questions:**
+
+1. *"What's the unemployment rate right now, and when's the next jobs
+   report?"* — `get_latest(UNRATE)` → 4.3% (May 2026), next release 2026-07-02.
+2. *"What's the 10-year Treasury yield today?"* — `get_latest(DGS10)` → 4.53%
+   (it correctly skips the `.` rows daily series publish on holidays).
+3. *"How has inflation trended over the past year?"* —
+   `get_observations(CPIAUCSL, transform=pct_change_yoy)` → 2.4% → 3.3% →
+   3.8% → 4.2% over Feb–May 2026.
+4. *"Find me data on median household income."* — `search_series` →
+   `MEHOINUSA672N` (real) and `MEHOINUSA646N` (nominal), annual.
+5. *"Is the labor market loosening? Compare unemployment and job openings
+   since 2024."* — `compare_series([UNRATE, JTSJOL])` → one aligned table.
+6. *"What economic data comes out this week?"* — `get_release_calendar(7)` →
+   241 release dates, CPI included.
+7. *"What was real GDP growth each quarter of 2025?"* —
+   `get_observations(A191RL1Q225SBEA)` → −0.6, +3.8, +4.4, +0.5%.
+8. *"Give me CPI as annual averages for the 2020s."* —
+   `get_observations(CPIAUCSL, frequency=annual)` → one row per year.
+
+**Questions only the vintage tools can answer:**
+
+9. *"How bad did Q4-2008 GDP look to policymakers in early 2009, versus what
+   we know now?"* — `get_series_as_of(GDPC1, "2009-02-15")` → a −3.8%
+   annualized decline as known then (in chained-2000 dollars — the metadata
+   is vintage-pinned too) versus −8.5% in today's data. Policy ran on the
+   first number.
+10. *"Was the May 2020 COVID unemployment rate ever revised?"* —
+    `get_revision_history(UNRATE, "2020-05-01")` → first published as 13.3
+    (2020-06-05), currently 13.2, with each revision dated.
+11. *"What mortgage rate did the Fed see going into the March 2022 liftoff
+    meeting?"* — `get_series_as_of(MORTGAGE30US, "2022-03-16")` → 3.85% as
+    known then; 6.48% today.
+12. *"How often does GDP actually get revised?"* — `get_vintage_dates(GDPC1)`
+    → 415 vintages since 1991-12-04.
+
 ## Install
 
 You need a **free FRED API key** (takes seconds):
