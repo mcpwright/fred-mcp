@@ -117,3 +117,14 @@ def test_ttl_two_days_ago_is_vintage():
     settled = (TODAY - dt.timedelta(days=2)).isoformat()
     params = {"realtime_start": settled, "realtime_end": settled}
     assert _ttl_for("/series/observations", params, TODAY) == _TTL_VINTAGE
+
+
+def test_http_request_logging_is_capped():
+    # httpx logs request URLs (incl. api_key) at INFO; main() must cap it.
+    import logging
+
+    from fred_mcp.server import _quiet_http_logging
+
+    _quiet_http_logging()
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
