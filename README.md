@@ -18,7 +18,9 @@ immutable and cache long; current data stays fresh) — no bulk mirroring.
 > Federal Reserve Bank of St. Louis. By using this server you agree to the
 > [FRED® API Terms of Use](https://fred.stlouisfed.org/docs/api/terms_of_use.html).
 
-**Status:** v0.1 — 9 tools, CI-gated, built on
+**Status:** v0.1.0 — live on [PyPI](https://pypi.org/project/mcpwright-fred/)
+(`uvx mcpwright-fred`) and the official MCP Registry
+(`io.github.mcpwright/fred-mcp`). 9 tools, CI-gated, built on
 [mcpwright-core](https://github.com/mcpwright/mcpwright-core).
 
 ## Why vintage data matters
@@ -113,7 +115,7 @@ Dev loop: feature branch → PR → `Code Quality & Tests` green → squash-merg
 ## Roadmap
 
 - [x] v1 tool surface (9 tools incl. the ALFRED vintage lane)
-- [ ] Publish to PyPI (`mcpwright-fred`) + the MCP Registry
+- [x] Publish to PyPI (`mcpwright-fred`) + the MCP Registry
 - [ ] Site page at [mcpwright.com/fred](https://mcpwright.com/fred)
 - [ ] `.mcpb` one-click Claude Desktop extension
 - [ ] GeoFRED / maps (pairs with [census-mcp](https://github.com/mcpwright/census-mcp))
