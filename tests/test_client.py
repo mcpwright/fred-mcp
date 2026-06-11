@@ -83,3 +83,37 @@ def test_ttl_metadata_endpoints():
     assert _ttl_for("/series", {"series_id": "X"}, TODAY) == _TTL_METADATA
     assert _ttl_for("/series/search", {"search_text": "x"}, TODAY) == _TTL_METADATA
     assert _ttl_for("/series/observations", {"series_id": "X"}, TODAY) == _TTL_DEFAULT
+
+
+@respx.mock
+async def test_error_messages_never_leak_the_api_key(fred):
+    # A WAF/edge can serve non-JSON 4xx pages; the URL echo carries api_key.
+    respx.get(f"{BASE_URL}/series").mock(
+        return_value=httpx.Response(403, text="<html>Forbidden</html>")
+    )
+    with pytest.raises(FredError) as excinfo:
+        await fred.series("GDPC1")
+    assert "test-key" not in str(excinfo.value)
+
+
+@respx.mock
+async def test_not_found_messages_never_leak_the_api_key(fred):
+    respx.get(f"{BASE_URL}/series").mock(return_value=httpx.Response(404))
+    with pytest.raises(FredError) as excinfo:
+        await fred.series("GDPC1")
+    assert "test-key" not in str(excinfo.value)
+    assert "REDACTED" in str(excinfo.value)
+
+
+def test_ttl_yesterday_is_not_settled_enough():
+    # FRED's data day is US Central; a one-day buffer avoids treating a
+    # possibly-in-progress vintage day as immutable.
+    yesterday = (TODAY - dt.timedelta(days=1)).isoformat()
+    params = {"realtime_start": yesterday, "realtime_end": yesterday}
+    assert _ttl_for("/series/observations", params, TODAY) == _TTL_DEFAULT
+
+
+def test_ttl_two_days_ago_is_vintage():
+    settled = (TODAY - dt.timedelta(days=2)).isoformat()
+    params = {"realtime_start": settled, "realtime_end": settled}
+    assert _ttl_for("/series/observations", params, TODAY) == _TTL_VINTAGE

@@ -128,3 +128,24 @@ async def test_get_latest_without_schedule(ctx):
     )
     latest = await server.get_latest("UNRATE", ctx)
     assert latest.next_release_date is None
+
+
+@respx.mock
+async def test_get_latest_skips_missing_holiday_rows(ctx):
+    respx.get(f"{BASE_URL}/series").mock(
+        return_value=httpx.Response(200, json=series_payload(units="Percent"))
+    )
+    respx.get(f"{BASE_URL}/series/observations").mock(
+        return_value=httpx.Response(
+            200,
+            json=observations_payload(
+                [("2026-06-09", "."), ("2026-06-08", "4.41"), ("2026-06-07", "4.39")]
+            ),
+        )
+    )
+    respx.get(f"{BASE_URL}/series/release").mock(
+        return_value=httpx.Response(200, json={"releases": []})
+    )
+    latest = await server.get_latest("DGS10", ctx)
+    assert latest.value == 4.41  # the '.' holiday row is skipped
+    assert latest.date == "2026-06-08"

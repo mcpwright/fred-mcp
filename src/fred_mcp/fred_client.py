@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 from typing import Any, cast
+from urllib.parse import urlencode
 
 import httpx
 from mcpwright_core import AsyncHttpClient, RateLimiter, TTLCache
@@ -69,13 +71,19 @@ class MissingKeyError(FredError):
 
 
 def _cache_key(path: str, params: dict[str, Any]) -> str:
-    query = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    query = urlencode(sorted((k, str(v)) for k, v in params.items()))
     return f"{path}?{query}"
 
 
-def _is_past(date_str: str, today: dt.date) -> bool:
+def _is_settled(date_str: str, today: dt.date) -> bool:
+    """True when ``date_str`` is comfortably in the past.
+
+    FRED's data day runs on US Central time; a one-day buffer means we never
+    treat a vintage day that may still be in progress (for users east of
+    Central) as immutable.
+    """
     try:
-        return dt.date.fromisoformat(date_str) < today
+        return dt.date.fromisoformat(date_str) < today - dt.timedelta(days=1)
     except ValueError:
         return False
 
@@ -83,16 +91,18 @@ def _is_past(date_str: str, today: dt.date) -> bool:
 def _ttl_for(path: str, params: dict[str, Any], today: dt.date) -> float:
     """How long a response may be cached.
 
-    A read whose real-time window ends in the past is a vintage snapshot —
-    immutable by construction — so it gets the long TTL. Metadata and search
-    change rarely; everything else (current observations, the release
-    calendar) stays fresh-ish.
+    A read whose real-time window ended in the (settled) past is a vintage
+    snapshot — what was known on a date never changes — so it gets the long
+    TTL. (ALFRED very occasionally backfills archival vintages, which is why
+    the TTL is 30 days rather than infinite.) Metadata and search change
+    rarely; everything else (current observations, the release calendar)
+    stays fresh-ish.
     """
     realtime_end = str(params.get("realtime_end", ""))
     if (
         realtime_end
         and realtime_end != CURRENT_REALTIME_END
-        and _is_past(realtime_end, today)
+        and _is_settled(realtime_end, today)
     ):
         return _TTL_VINTAGE
     if path in ("/series", "/series/search"):
@@ -128,17 +138,15 @@ class FredClient(AsyncHttpClient):
         enabled = cache and os.environ.get("FRED_MCP_CACHE", "1") not in ("0", "false")
         self._cache: TTLCache | None = TTLCache() if enabled else None
 
-    @property
-    def has_key(self) -> bool:
-        return bool(self._key)
-
     async def fred_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         """GET a FRED endpoint and parse the JSON body (cached by volatility).
 
         ``path`` is relative to the API base (e.g. ``/series/observations``).
         The API key and ``file_type=json`` are added here; the key is NOT part
         of the cache key. FRED's 4xx error bodies carry a useful
-        ``error_message`` — surface it instead of a bare status code.
+        ``error_message`` — surface it instead of a bare status code. The key
+        travels as a query param, so EVERY error message is scrubbed of it
+        before it can reach logs or the model.
         """
         if not self._key:
             raise MissingKeyError()
@@ -146,6 +154,7 @@ class FredClient(AsyncHttpClient):
         if self._cache is not None:
             hit, value = await self._cache.get(key)
             if hit:
+                # Cached values are shared objects — callers must not mutate.
                 return cast("dict[str, Any]", value)
         full = dict(params)
         full["api_key"] = self._key
@@ -153,7 +162,13 @@ class FredClient(AsyncHttpClient):
         try:
             resp = await self.request("GET", BASE_URL + path, params=full)
         except httpx.HTTPStatusError as exc:
-            raise FredError(_fred_error_message(exc.response)) from exc
+            raise FredError(_redact_key(_fred_error_message(exc.response))) from exc
+        except MissingKeyError:
+            raise
+        except FredError as exc:
+            # The base client's messages can embed the full URL (404, retry
+            # exhaustion) — never let the api_key query param escape.
+            raise FredError(_redact_key(str(exc))) from exc
         data: dict[str, Any] = resp.json()
         if self._cache is not None:
             ttl = _ttl_for(path, params, dt.date.today())
@@ -214,7 +229,7 @@ class FredClient(AsyncHttpClient):
         )
 
     async def releases_dates(
-        self, *, start: str, end: str, limit: int = 200
+        self, *, start: str, end: str, limit: int = 1000
     ) -> dict[str, Any]:
         """Release dates across ALL releases within a window (the calendar)."""
         return await self.fred_json(
@@ -229,6 +244,14 @@ class FredClient(AsyncHttpClient):
         )
 
 
+_KEY_RE = re.compile(r"api_key=[^&\s\"']+")
+
+
+def _redact_key(message: str) -> str:
+    """Scrub any api_key query value out of a message bound for logs/agents."""
+    return _KEY_RE.sub("api_key=REDACTED", message)
+
+
 def _fred_error_message(resp: httpx.Response) -> str:
     """The API's own error_message when present, else a generic line."""
     try:
@@ -238,4 +261,4 @@ def _fred_error_message(resp: httpx.Response) -> str:
             return f"FRED API error {resp.status_code}: {message}"
     except ValueError:
         pass
-    return f"FRED API error {resp.status_code} for {resp.url}"
+    return f"FRED API error {resp.status_code} for {resp.url.copy_with(query=None)}"

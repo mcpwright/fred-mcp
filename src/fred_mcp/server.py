@@ -300,7 +300,8 @@ async def get_observations(
 async def get_latest(series_id: str, ctx: Context) -> LatestValue:
     """The most recent value of a series, plus its next scheduled release.
 
-    `series_id`: a FRED series ID. The value is the CURRENT print — it may
+    `series_id`: a FRED series ID. The value is the most recent NON-MISSING
+    print (daily series publish '.' on holidays) and is CURRENT data — it may
     itself be revised later (see `get_revision_history` for how much this
     series typically moves). `next_release_date` is null when FRED publishes
     no schedule for the series' release.
@@ -312,11 +313,13 @@ async def get_latest(series_id: str, ctx: Context) -> LatestValue:
     if not seriess:
         raise FredError(f"Series {series_id!r} not found — try search_series.")
     info = seriess[0]
-    data = await fred.observations(sid, sort_order="desc", limit=1)
+    # Daily series publish '.' (missing) rows on holidays/weekends — look a
+    # few rows back for the most recent real value.
+    data = await fred.observations(sid, sort_order="desc", limit=7)
     observations = to_observations(data.get("observations", []))
     if not observations:
         raise FredError(f"Series {sid} has no observations.")
-    latest = observations[0]
+    latest = next((o for o in observations if o.value is not None), observations[0])
     return LatestValue(
         series_id=sid,
         title=info.get("title", ""),
@@ -426,6 +429,7 @@ async def get_release_calendar(ctx: Context, days: int = 14) -> ReleaseCalendar:
     today = dt.date.today()
     end = today + dt.timedelta(days=days)
     data = await _fred(ctx).releases_dates(start=today.isoformat(), end=end.isoformat())
+    rows = data.get("release_dates", [])
     return ReleaseCalendar(
         start=today.isoformat(),
         end=end.isoformat(),
@@ -435,8 +439,9 @@ async def get_release_calendar(ctx: Context, days: int = 14) -> ReleaseCalendar:
                 release_name=str(r.get("release_name", "")),
                 date=str(r["date"]),
             )
-            for r in data.get("release_dates", [])
+            for r in rows
         ],
+        truncated=int(data.get("count", len(rows))) > len(rows),
     )
 
 
@@ -467,7 +472,13 @@ async def get_series_as_of(
         start=start, end=end, max_points=max_points, realtime=as_of_date
     )
     fred = _fred(ctx)
-    meta = await fred.series(sid)
+    # Metadata as known on as_of too — units/title can change across vintages
+    # (e.g. GDP re-basings); fall back to current metadata if the vintage
+    # metadata isn't available.
+    try:
+        meta = await fred.series(sid, realtime=as_of_date)
+    except FredError:
+        meta = await fred.series(sid)
     seriess = meta.get("seriess", [])
     if not seriess:
         raise FredError(f"Series {series_id!r} not found — try search_series.")
@@ -475,10 +486,13 @@ async def get_series_as_of(
     try:
         rows, truncated = await _fetch_window(fred, sid, params)
     except FredError as exc:
-        raise FredError(
-            f"{exc} — if as_of predates the series' first vintage there is no "
-            "data for that date; check get_vintage_dates."
-        )
+        message = str(exc)
+        if "400" in message or "vintage" in message.lower():
+            message += (
+                " — if as_of predates the series' first vintage there is no "
+                "data for that date; check get_vintage_dates."
+            )
+        raise FredError(message)
     return AsOfResult(
         series_id=sid,
         title=info.get("title", ""),
@@ -493,13 +507,18 @@ async def get_series_as_of(
 async def get_revision_history(
     series_id: str, observation_date: str, ctx: Context
 ) -> RevisionHistory:
-    """One data point's life across revisions: initial print -> today's value.
+    """One data point's life across revisions: earliest archived print -> today.
 
     `series_id`: a FRED series ID. `observation_date`: the data point's PERIOD
     START date (ISO) — quarterly series use quarter starts (Q4 2008 =
-    "2008-10-01"), monthly use month starts. Returns the initial (real-time)
+    "2008-10-01"), monthly use month starts. Returns the earliest archived
     value, every revision with its publication date, the current value, and
-    the total drift. The initial print is what decision-makers actually saw.
+    the total drift.
+
+    Caveat: ALFRED's archive starts late for many series (`archive_starts`
+    shows where). `initial_value` is the true first print — what
+    decision-makers actually saw — only when the archive reaches back to the
+    observation's original release.
     """
     fred = _fred(ctx)
     sid = series_id.strip().upper()
@@ -525,17 +544,20 @@ async def get_revision_history(
             "get_series shows the series' frequency and range."
         )
     steps = build_revision_steps(rows)
-    if len(steps) > _MAX_REVISION_STEPS:
+    steps_truncated = len(steps) > _MAX_REVISION_STEPS
+    if steps_truncated:
         steps = steps[: _MAX_REVISION_STEPS - 1] + steps[-1:]
     return RevisionHistory(
         series_id=sid,
         title=info.get("title", ""),
         observation_date=obs_date,
         units=info.get("units", ""),
+        archive_starts=steps[0].published_on if steps else None,
         initial_value=steps[0].value if steps else None,
         current_value=steps[-1].value if steps and steps[-1].is_current else None,
         total_revision=total_revision(steps),
         steps=steps,
+        steps_truncated=steps_truncated,
     )
 
 
@@ -548,21 +570,31 @@ async def get_vintage_dates(series_id: str, ctx: Context) -> VintageDatesResult:
     `first_vintage`. The full list is capped to the most recent dates;
     `total_vintages` is the true count.
     """
-    data = await _fred(ctx).vintage_dates(series_id.strip().upper())
+    fred = _fred(ctx)
+    sid = series_id.strip().upper()
+    data = await fred.vintage_dates(sid)
     dates: list[str] = list(data.get("vintage_dates", []))
     if not dates:
         raise FredError(
             f"No vintage dates for {series_id!r} — check the series ID "
             "(try search_series)."
         )
-    newest_first = list(reversed(dates))
+    total = int(data.get("count", len(dates)))
+    if total > len(dates):
+        # >10k vintages — the asc fetch missed the newest; fetch those desc.
+        desc = await fred.vintage_dates(
+            sid, limit=_MAX_VINTAGES_LISTED, sort_order="desc"
+        )
+        newest_first = list(desc.get("vintage_dates", []))
+    else:
+        newest_first = list(reversed(dates))
     return VintageDatesResult(
-        series_id=series_id.strip().upper(),
-        total_vintages=len(dates),
+        series_id=sid,
+        total_vintages=total,
         first_vintage=dates[0],
-        latest_vintage=dates[-1],
+        latest_vintage=newest_first[0] if newest_first else dates[-1],
         vintage_dates=newest_first[:_MAX_VINTAGES_LISTED],
-        truncated=len(dates) > _MAX_VINTAGES_LISTED,
+        truncated=total > _MAX_VINTAGES_LISTED,
     )
 
 

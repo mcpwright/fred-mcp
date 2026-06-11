@@ -110,3 +110,24 @@ async def test_release_calendar_bounds_days(ctx):
         await server.get_release_calendar(ctx, days=0)
     with pytest.raises(ValueError, match="between 1 and 90"):
         await server.get_release_calendar(ctx, days=365)
+
+
+@respx.mock
+async def test_release_calendar_flags_truncation(ctx):
+    respx.get(f"{BASE_URL}/releases/dates").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "count": 1200,
+                "release_dates": [
+                    {
+                        "release_id": 50,
+                        "release_name": "Employment Situation",
+                        "date": "2026-06-12",
+                    }
+                ],
+            },
+        )
+    )
+    cal = await server.get_release_calendar(ctx, days=90)
+    assert cal.truncated is True

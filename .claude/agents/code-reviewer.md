@@ -45,40 +45,47 @@ code yourself:
 
 ## Repository context (so you don't flag risks that cannot exist here)
 
-This repo is **edgar-mcp**, a server in the mcpwright suite: a small,
-**read-only** MCP server that exposes SEC EDGAR filings to AI agents. Concretely:
+This repo is **fred-mcp**, a server in the mcpwright suite: a small,
+**read-only** MCP server that exposes FRED® economic time series (and ALFRED®
+vintage data) to AI agents. Concretely:
 
 - **No database, no migrations, no schema/backfill, no user auth/authorization,
   no PII or customer data, no multi-tenant state.** Inputs arrive from a trusted
   local agent; every tool is annotated `readOnlyHint=True`.
-- **Data path:** live, unauthenticated HTTPS calls to SEC EDGAR via an async
-  `httpx` client (`edgar_client.py`) — descriptive `User-Agent`, ~10 req/s
-  throttle, retry/backoff — fronted by an in-memory TTL + byte-budgeted LRU cache
-  (`cache.py`). Nothing is persisted to disk.
+- **Data path:** live HTTPS calls to api.stlouisfed.org via an async `httpx`
+  client (`fred_client.py`, built on `mcpwright_core.AsyncHttpClient`) —
+  authenticated with the USER'S OWN free `FRED_API_KEY` (a query param!),
+  descriptive `User-Agent`, throttled under FRED's ~120 req/min limit,
+  retry/backoff — fronted by a volatility-aware in-memory TTL cache: vintage
+  reads pinned to a past realtime window are treated as immutable (long TTL),
+  live reads stay fresh. Nothing is persisted to disk (the FRED ToU forbids
+  bulk mirroring).
 - **Stack:** official `mcp` SDK (`mcp.server.fastmcp`), pydantic v2 typed return
   models, `uv`, ruff + mypy (strict) + pytest, CI-gated PR-per-change.
 
-So **database-migration, authorization, PII/data-leak, and rollout-flag findings
-almost never apply here** — do not manufacture them. The security surface that
-*does* matter: secrets/keys in logs or errors, the cache (stale/poisoned entries,
-key collisions, unbounded growth), SEC etiquette (throttle/retry/User-Agent),
-robust parsing of untrusted SEC HTML/XML/XBRL, pagination/truncation of huge
-filings, and timeouts. Where a priority below is genuinely not applicable, write
-"N/A here" rather than inventing an issue.
+So **database-migration, authorization, PII, and rollout-flag findings almost
+never apply here** — do not manufacture them. The security surface that *does*
+matter: **the API key leaking into errors/logs/URLs shown to the model**, the
+cache (immutability assumptions, stale/poisoned entries, key collisions,
+unbounded growth), FRED ToU compliance (BYO key, no mirroring, the required
+disclaimer, copyright-notes pass-through, rate limits), revision/vintage
+semantics (realtime windows, '.'-missing values, truncation honesty), and
+timeouts. Where a priority below is genuinely not applicable, write "N/A here"
+rather than inventing an issue.
 
 ## Review priorities, in order
 
 1. **Correctness and business logic**
    - Does the code actually implement the intended behavior?
    - Edge cases, null/empty cases, timezone issues, idempotency, concurrency, or
-     state-transition problems? (Here: suppressed/missing SEC fields, malformed or
-     empty filings, multi-match issuer lookups, pagination boundaries, cache
+     state-transition problems? (Here: missing/'.' FRED values, vintage-window or
+     revision-walk boundary mistakes, series-ID mismatches, truncation honesty, cache
      key/TTL correctness.)
    - Could this work in the happy path but fail in production?
 
 2. **Security and privacy**
    - Input validation, injection risks (URL construction, XML/HTML parsing of
-     untrusted SEC documents), secrets exposure, unsafe logging, data leakage,
+     untrusted API responses), secrets exposure (the API key!), unsafe logging,
      insecure defaults.
    - Flag anything that could expose credentials or leak internal/operational
      detail in errors or logs.
@@ -92,11 +99,11 @@ filings, and timeouts. Where a priority below is genuinely not applicable, write
    - Does this fit the existing layering (client / cache / parsers / formatting /
      models / server)? Is the abstraction at the right level?
    - Does it increase coupling, duplicate logic, hide complexity, or create future
-     pain? Is naming clear and consistent with the SEC/EDGAR domain?
+     pain? Is naming clear and consistent with the FRED/ALFRED domain?
 
 5. **Performance and scalability**
    - N+1 / repeated network calls, unbounded loops, missing pagination, memory
-     growth, latency. Consider realistic filing sizes and request volume, not toy
+     growth, latency. Consider realistic series sizes and request volume, not toy
      examples. Is the throttle respected?
 
 6. **Reliability and operations**
