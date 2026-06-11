@@ -1,0 +1,56 @@
+{
+  "manifest_version": "0.4",
+  "name": "fred",
+  "display_name": "FRED (economic data)",
+  "version": "0.1.0",
+  "description": "FRED economic time series + ALFRED vintages: data as originally published, before revisions.",
+  "long_description": "An MCP server that puts FRED® — 800,000+ U.S. and international economic time series from the Federal Reserve Bank of St. Louis — inside your agent, including ALFRED® vintage data: any series exactly as it was known on a past date, and any single data point's full revision history from its earliest archived print to today. Search series, read observations with server-side transforms, follow the release calendar, and ask what decision-makers actually saw at the time. Read-only, live API calls with a revision-aware cache (no bulk mirroring), powered by your own free FRED API key. This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.",
+  "author": {
+    "name": "Devender Gollapally",
+    "url": "https://github.com/devender"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mcpwright/fred-mcp"
+  },
+  "homepage": "https://mcpwright.com/fred",
+  "documentation": "https://mcpwright.com/fred",
+  "icon": "icon.png",
+  "license": "MIT",
+  "privacy_policies": ["https://mcpwright.com/privacy/"],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/fred_mcp/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "mcpwright-fred"],
+      "env": {
+        "FRED_API_KEY": "${user_config.fred_api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "fred_api_key": {
+      "type": "string",
+      "title": "FRED API Key",
+      "description": "Your own free key from https://fred.stlouisfed.org/docs/api/api_key_request.html — keys are personal under the FRED API Terms of Use.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "tools": [
+    { "name": "search_series", "description": "Find FRED series by free-text search, best matches first." },
+    { "name": "get_series", "description": "One series' full metadata and verbatim notes (copyright notices included)." },
+    { "name": "get_observations", "description": "A date window of values with optional transform and downsampling." },
+    { "name": "get_latest", "description": "The most recent value plus the next scheduled release date." },
+    { "name": "compare_series", "description": "Align 2-5 series on one date axis for comparison." },
+    { "name": "get_release_calendar", "description": "Upcoming data-release dates (\"when is the next jobs report?\")." },
+    { "name": "get_series_as_of", "description": "A series exactly as it was known on a past date (ALFRED vintage)." },
+    { "name": "get_revision_history", "description": "One data point's life across revisions: earliest archived print to today." },
+    { "name": "get_vintage_dates", "description": "When a series' data was released or revised (its ALFRED vintages)." }
+  ],
+  "tools_generated": false,
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}
