@@ -17,3 +17,5 @@ __pycache__/
 # build artifacts
 dist/
 build/
+.env
+.env.*

@@ -146,3 +146,50 @@ async def test_get_vintage_dates_unknown_series(ctx):
     )
     with pytest.raises(FredError, match="search_series"):
         await server.get_vintage_dates("NOPE", ctx)
+
+
+@respx.mock
+async def test_get_series_as_of_pins_metadata_to_the_vintage_too(ctx):
+    meta_route = respx.get(f"{BASE_URL}/series").mock(
+        return_value=httpx.Response(
+            200, json=series_payload(units="Billions of Chained 2000 Dollars")
+        )
+    )
+    respx.get(f"{BASE_URL}/series/observations").mock(
+        return_value=httpx.Response(200, json=observations_payload([]))
+    )
+    result = await server.get_series_as_of("GDPC1", "2009-02-15", ctx)
+    params = meta_route.calls.last.request.url.params
+    assert params["realtime_start"] == "2009-02-15"
+    assert params["realtime_end"] == "2009-02-15"
+    assert result.units == "Billions of Chained 2000 Dollars"
+
+
+@respx.mock
+async def test_get_revision_history_caps_steps_and_flags_it(ctx):
+    respx.get(f"{BASE_URL}/series").mock(
+        return_value=httpx.Response(200, json=series_payload())
+    )
+    rows = [
+        {
+            "date": "2008-10-01",
+            "value": str(-3.8 - i * 0.1),
+            "realtime_start": f"20{10 + i // 12:02d}-{i % 12 + 1:02d}-01",
+            "realtime_end": (
+                f"20{10 + (i + 1) // 12:02d}-{(i + 1) % 12 + 1:02d}-01"
+                if i < 69
+                else "9999-12-31"
+            ),
+        }
+        for i in range(70)
+    ]
+    respx.get(f"{BASE_URL}/series/observations").mock(
+        return_value=httpx.Response(200, json={"observations": rows})
+    )
+    history = await server.get_revision_history("GDPC1", "2008-10-01", ctx)
+    assert history.steps_truncated is True
+    assert len(history.steps) == 60
+    assert history.archive_starts == "2010-01-01"
+    assert history.steps[0].is_initial  # initial kept
+    assert history.steps[-1].is_current  # current kept
+    assert history.current_value == history.steps[-1].value

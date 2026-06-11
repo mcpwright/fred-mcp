@@ -114,8 +114,9 @@ class ComparisonRow(BaseModel):
 
     date: str = Field(description="Observation date (YYYY-MM-DD)")
     values: dict[str, float | None] = Field(
-        description="series_id -> value on this date (null where a series has no "
-        "observation or a missing value)"
+        description="series_id -> value on this date. Null means: no observation "
+        "on this date, a missing value, or the date falls outside that series' "
+        "returned window (possible when `truncated` is true)"
     )
 
 
@@ -143,6 +144,12 @@ class ReleaseCalendar(BaseModel):
     end: str = Field(description="Window end (YYYY-MM-DD)")
     releases: list[ReleaseDateEntry] = Field(
         description="Release dates in the window, soonest first"
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True if more release dates exist in the window than were "
+        "returned — an absent release is NOT proof nothing is scheduled; "
+        "narrow `days`",
     )
 
 
@@ -194,10 +201,13 @@ class RevisionStep(BaseModel):
     )
     superseded_on: str | None = Field(
         default=None,
-        description="The date this value was replaced by a revision (null for "
-        "the current value)",
+        description="The last date this value was current — a revision was "
+        "published the following vintage (null for the current value)",
     )
-    is_initial: bool = Field(description="True for the first-ever published value")
+    is_initial: bool = Field(
+        description="True for the earliest value in ALFRED's archive — the true "
+        "first print only if vintage coverage reaches back to the observation"
+    )
     is_current: bool = Field(description="True for the value FRED reports today")
 
 
@@ -210,8 +220,16 @@ class RevisionHistory(BaseModel):
         description="The observation the history is for (period start date)"
     )
     units: str = Field(description="Units of the values")
+    archive_starts: str | None = Field(
+        default=None,
+        description="The first vintage in ALFRED's archive for this point. If "
+        "this is much later than observation_date, initial_value is the "
+        "earliest ARCHIVED value, not the true first print",
+    )
     initial_value: float | None = Field(
-        description="The value as FIRST published (the 'real-time' number)"
+        description="The value in ALFRED's earliest archived vintage — the "
+        "as-published 'real-time' number when archive_starts reaches back to "
+        "the observation's release"
     )
     current_value: float | None = Field(
         description="The value as published today, after all revisions"
@@ -223,4 +241,9 @@ class RevisionHistory(BaseModel):
     steps: list[RevisionStep] = Field(
         description="Each distinct value the point has held, oldest first "
         "(consecutive re-publications of an unchanged value are merged)"
+    )
+    steps_truncated: bool = Field(
+        default=False,
+        description="True if middle revisions were omitted to cap the list "
+        "(the initial and current steps are always kept)",
     )
