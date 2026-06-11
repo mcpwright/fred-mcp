@@ -157,7 +157,7 @@ Dev loop: feature branch → PR → `Code Quality & Tests` green → squash-merg
 
 - [x] v1 tool surface (9 tools incl. the ALFRED vintage lane)
 - [x] Publish to PyPI (`mcpwright-fred`) + the MCP Registry
-- [ ] Site page at [mcpwright.com/fred](https://mcpwright.com/fred)
+- [x] Site page at [mcpwright.com/fred](https://mcpwright.com/fred)
 - [ ] `.mcpb` one-click Claude Desktop extension
 - [ ] GeoFRED / maps (pairs with [census-mcp](https://github.com/mcpwright/census-mcp))
 
