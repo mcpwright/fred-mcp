@@ -1,5 +1,7 @@
 """get_observations + get_latest tools."""
 
+import datetime as dt
+
 import httpx
 import pytest
 import respx
@@ -102,15 +104,18 @@ async def test_get_latest_with_next_release(ctx):
             200, json={"releases": [{"id": 50, "name": "Employment Situation"}]}
         )
     )
+    # Use a date that is always in the future, so this test doesn't rot: the
+    # "next scheduled release" is only returned when it's on/after today.
+    future = (dt.date.today() + dt.timedelta(days=30)).isoformat()
     respx.get(f"{BASE_URL}/release/dates").mock(
         return_value=httpx.Response(
-            200, json={"release_dates": [{"release_id": 50, "date": "2026-07-02"}]}
+            200, json={"release_dates": [{"release_id": 50, "date": future}]}
         )
     )
     latest = await server.get_latest("UNRATE", ctx)
     assert latest.value == 3.9
     assert latest.date == "2026-05-01"
-    assert latest.next_release_date == "2026-07-02"
+    assert latest.next_release_date == future
 
 
 @respx.mock

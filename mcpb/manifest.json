@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "fred",
   "display_name": "FRED (economic data)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "FRED economic time series + ALFRED vintages: data as originally published, before revisions.",
   "long_description": "An MCP server that puts FRED® — 800,000+ U.S. and international economic time series from the Federal Reserve Bank of St. Louis — inside your agent, including ALFRED® vintage data: any series exactly as it was known on a past date, and any single data point's full revision history from its earliest archived print to today. Search series, read observations with server-side transforms, follow the release calendar, and ask what decision-makers actually saw at the time. Read-only, live API calls with a revision-aware cache (no bulk mirroring), powered by your own free FRED API key. This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.",
   "author": {
