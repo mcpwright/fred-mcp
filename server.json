@@ -3,7 +3,7 @@
   "name": "io.github.mcpwright/fred-mcp",
   "title": "FRED (economic data)",
   "description": "FRED economic time series + ALFRED vintages: data as originally published, before revisions.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "repository": {
     "url": "https://github.com/mcpwright/fred-mcp",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "pypi",
       "identifier": "mcpwright-fred",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "transport": {
         "type": "stdio"
       },
